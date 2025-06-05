@@ -19,6 +19,7 @@ from vidavox_rag_client.exceptions import (
 from vidavox_rag_client.models.folder import Folder, FolderCreateRequest
 from vidavox_rag_client.models.file import File, UploadResponse
 from vidavox_rag_client.models.search import SearchResponse, SearchRequest
+from vidavox_rag_client.helper import _find_folder_id, _find_folder_node_by_id, _collect_immediate_file_ids, _collect_all_file_ids_recursive
 
 
 class RAGClient:
@@ -45,9 +46,13 @@ class RAGClient:
             timeout: Request timeout in seconds
             max_retries: Maximum number of retry attempts
         """
-        self.config = Config()
-        self.base_url = base_url or self.config.base_url
-        self.api_key = api_key or self.config.api_key
+        self.config = Config(
+            override_base_url=base_url,
+            override_api_key=api_key
+        )
+
+        self.base_url = self.config.base_url
+        self.api_key = self.config.api_key
         self.timeout = timeout
         self.max_retries = max_retries
 
@@ -55,6 +60,9 @@ class RAGClient:
             raise ValueError("Base URL is required")
         if not self.api_key:
             raise ValueError("API key is required")
+
+        if self.api_key:
+            self.config.api_key = self.api_key
 
         # Remove trailing slash from base URL
         self.base_url = self.base_url.rstrip('/')
@@ -165,7 +173,7 @@ class RAGClient:
 
         response = self._make_request(
             'POST',
-            '/folders/',
+            '/v1/folders/',
             json=request_data.dict(exclude_none=True),
             headers={'Content-Type': 'application/json'}
         )
@@ -179,7 +187,7 @@ class RAGClient:
         Args:
             folder_id: Folder ID to delete
         """
-        self._make_request('DELETE', f'/folders/{folder_id}')
+        self._make_request('DELETE', f'/v1/folders/{folder_id}')
 
     # File Operations
 
@@ -211,7 +219,7 @@ class RAGClient:
 
             response = self._make_request(
                 'POST',
-                f'/folders/{folder_id}/v1/upload',
+                f'/v1/folders/{folder_id}/upload',
                 files=files
             )
 
@@ -242,7 +250,7 @@ class RAGClient:
 
         response = self._make_request(
             'POST',
-            f'/folders/{folder_id}/v1/upload',
+            f'/v1/folders/{folder_id}/upload',
             json={'directory_path': directory_path},
             headers={'Content-Type': 'application/json'}
         )
@@ -256,7 +264,7 @@ class RAGClient:
         Args:
             file_id: File ID to delete
         """
-        self._make_request('DELETE', f'/folders/file/{file_id}')
+        self._make_request('DELETE', f'/v1/folders/file/{file_id}')
 
     # Search Operations
 
@@ -264,6 +272,8 @@ class RAGClient:
         self,
         folder_id: str,
         query: str,
+        top_k: int = 10,
+        threshold: float = 0.4,
         prompt_type: str = "agentic",
         prefixes: Optional[List[str]] = None,
         include_doc_ids: Optional[List[str]] = None,
@@ -292,7 +302,8 @@ class RAGClient:
         )
 
         # Convert to form data for consistency with upload_and_search
-        data = [("query", query), ("prompt_type", prompt_type)]
+        data = [("query", query), ("prompt_type", prompt_type),
+                ("top_k", top_k), ("threshold", threshold)]
 
         if prefixes:
             for prefix in prefixes:
@@ -308,7 +319,7 @@ class RAGClient:
 
         response = self._make_request(
             'POST',
-            f'/folders/{folder_id}/v1/search',
+            f'/v1/analysis/perform_rag',
             data=data
         )
 
@@ -377,7 +388,7 @@ class RAGClient:
 
             response = self._make_request(
                 'POST',
-                f'/folders/{folder_id}/v1/upload-and-search',
+                f'/v1/folders/{folder_id}/upload-and-search',
                 files=files,
                 data=data
             )
@@ -389,6 +400,113 @@ class RAGClient:
             for _, file_tuple in files:
                 if hasattr(file_tuple[1], 'close'):
                     file_tuple[1].close()
+
+    def get_folder_tree(self) -> List[Dict[str, Any]]:
+        response = self._make_request("GET", "/v1/folders/tree")
+        return response.json()
+
+    def find_folder_id(self, folder_name: str) -> Optional[str]:
+        """
+        Search the user's folder tree for a folder with the exact name.
+        Returns its ID if found, else None.
+        """
+        tree = self.get_folder_tree()
+        return _find_folder_id(tree, folder_name)
+
+    def get_file_ids_in_folder(
+        self,
+        folder_id: str,
+        recursive: bool = False
+    ) -> List[str]:
+        """
+        Given a folder_id, return a list of file IDs contained within that folder.
+        By default, this only returns the immediate children of type 'file'.
+        If recursive=True, also descend into subfolders and return all nested file IDs.
+
+        Raises NotFoundError if folder_id does not exist in the tree.
+        """
+        # 1) Fetch the entire tree
+        tree = self.get_folder_tree()
+
+        # 2) Locate the folder node by its ID
+        folder_node = _find_folder_node_by_id(tree, folder_id)
+        if not folder_node:
+            raise NotFoundError(f"Folder with id '{folder_id}' not found.")
+
+        # 3) Collect file IDs
+        if recursive:
+            return _collect_all_file_ids_recursive(folder_node)
+        else:
+            return _collect_immediate_file_ids(folder_node)
+
+    def get_file_ids_in_folder_by_name(
+        self,
+        folder_name: str,
+        recursive: bool = False
+    ) -> List[str]:
+        """
+        Find a folder by folder_name, then return a list of file IDs under it.
+        By default, this only returns the immediate children of type 'file'.
+        If recursive=True, it will also collect files nested inside subfolders.
+
+        Raises NotFoundError if folder_name does not exist.
+        """
+        folder_id = self.find_folder_id(folder_name)
+        if not folder_id:
+            raise NotFoundError(f"Folder named '{folder_name}' not found.")
+        return self.get_file_ids_in_folder(folder_id, recursive=recursive)
+
+    def upload_files_to_folder(
+        self,
+        folder_name: str,
+        file_paths: List[Union[str, Path]]
+    ) -> UploadResponse:
+        """
+        Convenience wrapper: find a folder by name, then upload files there.
+        Raises FileNotFoundError if folder not found, or if any file missing.
+        """
+        folder_id = self.find_folder_id(folder_name)
+        if not folder_id:
+            raise NotFoundError(
+                f"Folder named '{folder_name}' not found in your tree.")
+
+        return self.upload_files(folder_id, file_paths)
+
+    def rag_search_in_folder(
+        self,
+        folder_name: str,
+        query: str,
+        top_k: int = 10,
+        threshold: float = 0.4,
+        prompt_type: str = "agentic",
+        prefixes: Optional[List[str]] = None,
+        include_doc_ids: Optional[List[str]] = None,
+        exclude_doc_ids: Optional[List[str]] = None,
+    ) -> SearchResponse:
+        """
+        Convenience wrapper: find a folder by name, then run search(...) there.
+        Raises NotFoundError if folder not found.
+        """
+        folder_id = self.find_folder_id(folder_name)
+
+        file_ids = self.get_file_ids_in_folder(folder_id, recursive=True)
+        if not folder_id:
+            raise NotFoundError(
+                f"Folder named '{folder_name}' not found in your tree.")
+
+        # Merge user prefixes with file_ids and deduplicate
+        combined_prefixes = list(set(file_ids + (prefixes or [])))
+
+        return self.search(
+            folder_id=folder_id,
+            query=query,
+            top_k=top_k,
+            threshold=threshold,
+            prompt_type=prompt_type,
+            prefixes=combined_prefixes,
+            include_doc_ids=include_doc_ids,
+            exclude_doc_ids=exclude_doc_ids
+        )
 
     def __enter__(self):
         """Context manager entry."""

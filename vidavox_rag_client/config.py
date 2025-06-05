@@ -12,18 +12,28 @@ class Config:
     Configuration class that handles environment variables and default settings.
     """
 
-    def __init__(self):
+    def __init__(self, override_base_url: Optional[str] = None,
+                 override_api_key:  Optional[str] = None,):
         """Initialize configuration from environment variables."""
         self._load_env_file()
 
         # API Configuration
-        self.base_url = os.getenv('RAG_API_BASE_URL', 'http://localhost:8002')
-        self.api_key = os.getenv('RAG_API_KEY', '')
+
+        if override_base_url is not None:
+            self.base_url = override_base_url
+        else:
+            self.base_url = os.getenv(
+                'VIDAVOX_API_BASE_URL', 'http://localhost:8002')
+
+        if override_api_key is not None:
+            self.api_key = override_api_key
+        else:
+            self.api_key = os.getenv('VIDAVOX_API_KEY', '')
 
         # Client Configuration
-        self.timeout = int(os.getenv('RAG_API_TIMEOUT', '30'))
-        self.max_retries = int(os.getenv('RAG_API_MAX_RETRIES', '3'))
-        self.chunk_size = int(os.getenv('RAG_API_CHUNK_SIZE', '8192'))
+        self.timeout = int(os.getenv('VIDAVOX_API_TIMEOUT', '30'))
+        self.max_retries = int(os.getenv('VIDAVOX_API_MAX_RETRIES', '3'))
+        self.chunk_size = int(os.getenv('VIDAVOX_API_CHUNK_SIZE', '8192'))
 
         # Logging Configuration
         self.log_level = os.getenv('RAG_LOG_LEVEL', 'INFO')
@@ -60,7 +70,7 @@ class Config:
             raise ValueError("RAG_API_BASE_URL is required")
 
         if not self.api_key:
-            raise ValueError("RAG_API_KEY is required")
+            raise ValueError("VIDAVOX_API_KEY is required")
 
         if self.timeout <= 0:
             raise ValueError("Timeout must be positive")

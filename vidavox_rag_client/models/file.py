@@ -2,7 +2,7 @@
 Models for file operations
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -116,68 +116,91 @@ class UploadResult:
 @dataclass
 class UploadResponse:
     """Response model for file upload operations."""
+    # existing fields:
     results: List[UploadResult]
     total_uploaded: int
     total_failed: int
     message: str = ""
 
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'UploadResponse':
-        """Create UploadResponse instance from dictionary."""
-        results = []
+    # new fields (match exactly what your backend returns)
+    success: bool = False
+    folder_id: Optional[str] = None
+    filenames: List[str] = field(default_factory=list)
 
-        # Handle different response formats
-        if 'results' in data:
-            results = [UploadResult.from_dict(result)
-                       for result in data['results']]
-        elif 'files' in data:
-            # Handle simple file list format
-            for file_data in data['files']:
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "UploadResponse":
+        """Create UploadResponse instance from dictionary."""
+        results: List[UploadResult] = []
+
+        # 1) preserve the existing logic for "results" / "files" / "file"…
+        if "results" in data:
+            results = [UploadResult.from_dict(r) for r in data["results"]]
+        elif "files" in data:
+            # “files” ➔ we only know them as fully successful File uploads
+            for file_data in data["files"]:
                 results.append(UploadResult(
                     file=File.from_dict(file_data),
                     success=True
                 ))
-        elif 'file' in data:
-            # Handle single file format
+        elif "file" in data:
             results.append(UploadResult(
-                file=File.from_dict(data['file']),
+                file=File.from_dict(data["file"]),
                 success=True
             ))
+        # 2) if none of those keys exist, leave results = []
 
-        total_uploaded = data.get('total_uploaded', len(
-            [r for r in results if r.success]))
-        total_failed = data.get('total_failed', len(
-            [r for r in results if not r.success]))
+        total_uploaded = data.get(
+            "total_uploaded",
+            len([r for r in results if r.success])
+        )
+        total_failed = data.get(
+            "total_failed",
+            len([r for r in results if not r.success])
+        )
+
+        # 3) read the newly added keys:
+        success = data.get("success", False)
+        folder_id = data.get("folder_id")
+        filenames = data.get("filenames", [])
 
         return cls(
             results=results,
             total_uploaded=total_uploaded,
             total_failed=total_failed,
-            message=data.get('message', '')
+            message=data.get("message", ""),
+            success=success,
+            folder_id=folder_id,
+            filenames=filenames
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert upload response to dictionary."""
+        """Convert upload response to dictionary (including new fields)."""
         return {
-            'results': [result.to_dict() for result in self.results],
-            'total_uploaded': self.total_uploaded,
-            'total_failed': self.total_failed,
-            'message': self.message
+            "success": self.success,
+            "folder_id": self.folder_id,
+            "filenames": self.filenames,
+            "results": [r.to_dict() for r in self.results],
+            "total_uploaded": self.total_uploaded,
+            "total_failed": self.total_failed,
+            "message": self.message,
         }
 
     @property
     def successful_files(self) -> List[File]:
-        """Get list of successfully uploaded files."""
-        return [result.file for result in self.results if result.success and result.file]
+        return [r.file for r in self.results if r.success and r.file]
 
     @property
     def failed_uploads(self) -> List[UploadResult]:
-        """Get list of failed uploads."""
-        return [result for result in self.results if not result.success]
+        return [r for r in self.results if not r.success]
 
     def __str__(self) -> str:
-        """String representation of upload response."""
-        return f"UploadResponse(uploaded={self.total_uploaded}, failed={self.total_failed})"
+        return (
+            f"UploadResponse(success={self.success}, "
+            f"folder_id={self.folder_id!r}, "
+            f"filenames={self.filenames!r}, "
+            f"uploaded={self.total_uploaded}, "
+            f"failed={self.total_failed})"
+        )
 
 
 @dataclass

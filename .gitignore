@@ -2,3 +2,4 @@ venv/
 .env
 __pycache__/
 vidavox_rag_client.egg-info/
+docs/
