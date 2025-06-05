@@ -182,12 +182,30 @@ class RAGClient:
 
     def delete_folder(self, folder_id: str) -> None:
         """
-        Delete a folder.
+        Delete a folder—first confirm it exists by inspecting the user's folder tree.
 
-        Args:
-            folder_id: Folder ID to delete
+        Raises:
+            NotFoundError if the folder_id cannot be found in the tree.
         """
-        self._make_request('DELETE', f'/v1/folders/{folder_id}')
+
+        # 1) Try to locate a matching node
+        node = self.find_folder_node_by_id(folder_id)
+
+        if not node:
+            raise NotFoundError(
+                f"Folder with ID '{folder_id}' does not exist.")
+        # 2) If found, proceed to delete
+        self._make_request("DELETE", f"/v1/folders/{folder_id}")
+
+    def delete_folder_by_name(self, folder_name: str) -> None:
+        """
+        Find a folder by its name, then delete it.  
+        Raises NotFoundError if no folder with that name exists.
+        """
+        folder_id = self.find_folder_id(folder_name)
+        if not folder_id:
+            raise NotFoundError(f"Folder named '{folder_name}' not found.")
+        self.delete_folder(folder_id)
 
     # File Operations
 
@@ -266,6 +284,36 @@ class RAGClient:
         """
         self._make_request('DELETE', f'/v1/folders/file/{file_id}')
 
+    def delete_files(
+        self,
+        file_ids: list[str],
+        raise_on_error: bool = True
+    ) -> dict[str, bool]:
+        """
+        Delete multiple files by their IDs.
+
+        Args:
+            file_ids: List of file‐ID strings to delete.
+            raise_on_error: 
+                - If True, this method will raise as soon as any single delete fails.
+                - If False, it will attempt to delete every ID and return a dict indicating success/failure per ID.
+
+        Returns:
+            If raise_on_error=True (default), this method returns an empty dict (it either succeeds fully or raises).
+            If raise_on_error=False, returns a mapping { file_id: True/False } indicating which deletes succeeded.
+        """
+        results: dict[str, bool] = {}
+        for fid in file_ids:
+            try:
+                self.delete_file(fid)
+                results[fid] = True
+            except Exception as e:
+                results[fid] = False
+                if raise_on_error:
+                    # Abort immediately and bubble up the exception
+                    raise
+
+        return results
     # Search Operations
 
     def search(
@@ -404,6 +452,14 @@ class RAGClient:
     def get_folder_tree(self) -> List[Dict[str, Any]]:
         response = self._make_request("GET", "/v1/folders/tree")
         return response.json()
+
+    def find_folder_node_by_id(self, folder_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Search the user's folder tree for a folder with the exact ID.
+        Returns its node if found, else None.
+        """
+        tree = self.get_folder_tree()
+        return _find_folder_node_by_id(tree, folder_id)
 
     def find_folder_id(self, folder_name: str) -> Optional[str]:
         """
