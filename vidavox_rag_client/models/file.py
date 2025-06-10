@@ -225,3 +225,42 @@ class FileList:
             'files': [file.to_dict() for file in self.files],
             'total': self.total
         }
+
+
+@dataclass
+class DeletedFile:
+    id: str
+    filename: str
+    folder_id: str
+    path: str
+    url: str
+    uploaded_at: datetime
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DeletedFile":
+        return cls(
+            id=data["id"],
+            filename=data["filename"],
+            folder_id=data["folder_id"],
+            path=data["path"],
+            url=data["url"],
+            uploaded_at=datetime.fromisoformat(data["uploaded_at"]),
+        )
+
+
+@dataclass
+class DeleteResponse:
+    success: bool
+    deleted_docs: int
+    files_scheduled: int
+    records: List[DeletedFile]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DeleteResponse":
+        recs = [DeletedFile.from_dict(r) for r in data.get("records", [])]
+        return cls(
+            success=data.get("success", True),
+            deleted_docs=data.get("deleted_docs", len(recs)),
+            files_scheduled=data.get("files_scheduled", 0),
+            records=recs,
+        )

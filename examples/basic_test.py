@@ -19,7 +19,7 @@ test_folder_name = "My Documents"
 
 
 def main():
-    client = RAGClient(base_url=base_url, api_key=api_key)
+    client = RAGClient(base_url=base_url, api_key=api_key, timeout=120)
 
     try:
         print("▶ 1) Attempting to create folder:", test_folder_name)
@@ -96,7 +96,7 @@ def main():
         try:
             results = client.rag_search_in_folder(
                 folder_name=test_folder_name,
-                query="What is the introduction of the research paper?",
+                query="What is the contribution of the research paper?",
                 top_k=5,
                 threshold=0.4,
                 prompt_type="agentic"

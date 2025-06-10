@@ -14,10 +14,11 @@ from vidavox_rag_client.exceptions import (
     AuthenticationError,
     NotFoundError,
     ValidationError,
-    ServerError
+    ServerError,
+    DuplicateFolderError
 )
 from vidavox_rag_client.models.folder import Folder, FolderCreateRequest
-from vidavox_rag_client.models.file import File, UploadResponse
+from vidavox_rag_client.models.file import File, UploadResponse, DeleteResponse
 from vidavox_rag_client.models.search import SearchResponse, SearchRequest
 from vidavox_rag_client.helper import _find_folder_id, _find_folder_node_by_id, _collect_immediate_file_ids, _collect_all_file_ids_recursive
 
@@ -34,7 +35,7 @@ class RAGClient:
         self,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
-        timeout: int = 30,
+        timeout: int = 3600,
         max_retries: int = 3
     ):
         """
@@ -145,6 +146,8 @@ class RAGClient:
             raise AuthenticationError(error_message)
         elif response.status_code == 404:
             raise NotFoundError(error_message)
+        elif response.status_code == 409:
+            raise DuplicateFolderError(response.json()["detail"])
         elif response.status_code == 400:
             raise ValidationError(error_message)
         elif 500 <= response.status_code < 600:
@@ -180,33 +183,39 @@ class RAGClient:
 
         return Folder.from_dict(response.json())
 
-    def delete_folder(self, folder_id: str) -> None:
+    def delete_folder(self, folder_id: str) -> DeleteResponse:
         """
-        Delete a folder—first confirm it exists by inspecting the user's folder tree.
+        Delete a folder by ID and return the server’s structured response.
 
-        Raises:
-            NotFoundError if the folder_id cannot be found in the tree.
+        Raises
+        -------
+        NotFoundError
+            If the folder ID is not present in the cached folder tree.
         """
-
-        # 1) Try to locate a matching node
-        node = self.find_folder_node_by_id(folder_id)
-
-        if not node:
+        # 1) make sure it exists locally (optional but nice UX)
+        if not self.find_folder_node_by_id(folder_id):
             raise NotFoundError(
                 f"Folder with ID '{folder_id}' does not exist.")
-        # 2) If found, proceed to delete
-        self._make_request("DELETE", f"/v1/folders/{folder_id}")
 
-    def delete_folder_by_name(self, folder_name: str) -> None:
+        # 2) call backend – assume _make_request returns the decoded JSON dict
+        resp: dict = self._make_request(
+            "DELETE",
+            f"/v1/folders/{folder_id}",
+        )
+
+        # 3) parse into typed response object
+        raw_json: dict = resp.json()          # <─ add .json()
+        return DeleteResponse.from_dict(raw_json)
+
+    def delete_folder_by_name(self, folder_name: str) -> DeleteResponse:
         """
-        Find a folder by its name, then delete it.  
-        Raises NotFoundError if no folder with that name exists.
+        Convenience wrapper: resolve folder name → ID → delete.
         """
         folder_id = self.find_folder_id(folder_name)
         if not folder_id:
             raise NotFoundError(f"Folder named '{folder_name}' not found.")
-        self.delete_folder(folder_id)
 
+        return self.delete_folder(folder_id)
     # File Operations
 
     def upload_files(
@@ -286,34 +295,37 @@ class RAGClient:
 
     def delete_files(
         self,
-        file_ids: list[str],
+        file_ids: List[str],
         raise_on_error: bool = True
-    ) -> dict[str, bool]:
+    ) -> Dict[str, bool]:
         """
         Delete multiple files by their IDs.
 
         Args:
-            file_ids: List of file‐ID strings to delete.
-            raise_on_error: 
-                - If True, this method will raise as soon as any single delete fails.
-                - If False, it will attempt to delete every ID and return a dict indicating success/failure per ID.
+            file_ids: List of file-ID strings to delete.
+            raise_on_error: If True, raise on first error. If False, continue and return results.
 
         Returns:
-            If raise_on_error=True (default), this method returns an empty dict (it either succeeds fully or raises).
-            If raise_on_error=False, returns a mapping { file_id: True/False } indicating which deletes succeeded.
+            Dict mapping file_id -> success boolean
         """
-        results: dict[str, bool] = {}
+        results: Dict[str, bool] = {}
+        first_error = None
+
         for fid in file_ids:
             try:
                 self.delete_file(fid)
                 results[fid] = True
             except Exception as e:
                 results[fid] = False
-                if raise_on_error:
-                    # Abort immediately and bubble up the exception
-                    raise
+                if raise_on_error and first_error is None:
+                    first_error = e
+
+        # If raise_on_error=True and we had any errors, raise the first one
+        if raise_on_error and first_error:
+            raise first_error
 
         return results
+
     # Search Operations
 
     def search(
@@ -563,6 +575,32 @@ class RAGClient:
             include_doc_ids=include_doc_ids,
             exclude_doc_ids=exclude_doc_ids
         )
+
+    # Key methods to add for better developer experience
+
+    def list_folders(self, parent_id: Optional[str] = None) -> List[Folder]:
+        """List all folders, optionally filtered by parent."""
+        endpoint = "/v1/folders/"
+        if parent_id:
+            endpoint += f"?parent_id={parent_id}"
+
+        response = self._make_request('GET', endpoint)
+        return [Folder.from_dict(folder) for folder in response.json()]
+
+    def get_folder(self, folder_id: str) -> Folder:
+        """Get detailed information about a specific folder."""
+        response = self._make_request('GET', f'/v1/folders/{folder_id}')
+        return Folder.from_dict(response.json())
+
+    def list_files(self, folder_id: str) -> List[File]:
+        """List all files in a folder."""
+        response = self._make_request('GET', f'/v1/folders/{folder_id}/files')
+        return [File.from_dict(file_data) for file_data in response.json()]
+
+    def get_file(self, file_id: str) -> File:
+        """Get detailed information about a specific file."""
+        response = self._make_request('GET', f'/v1/files/{file_id}')
+        return File.from_dict(response.json())
 
     def __enter__(self):
         """Context manager entry."""

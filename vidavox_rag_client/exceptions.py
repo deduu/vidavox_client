@@ -17,6 +17,13 @@ class RAGAPIError(Exception):
         return f"RAG API Error: {self.message}"
 
 
+class DuplicateFolderError(RAGAPIError):
+    """Raised when trying to create a folder with the same name."""
+
+    def __init__(self, message: str = "Folder already exists"):
+        super().__init__(message, 409)
+
+
 class AuthenticationError(RAGAPIError):
     """Raised when authentication fails (401 Unauthorized)."""
 
