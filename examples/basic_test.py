@@ -6,8 +6,7 @@ from pathlib import Path
 from vidavox_rag_client.client import RAGClient
 from vidavox_rag_client.exceptions import NotFoundError, RAGAPIError
 
-# ── EDIT THIS ──
-base_url = "http://34.27.153.226:8003"   # Your RAG API base URL
+
 api_key = "TE-kWiL2XUpCvtlgLXEl0TMcFA9Oe-9rqSakG_dEUr8"  # Your API key
 
 # Make sure these files actually exist on disk before running.
@@ -19,7 +18,7 @@ test_folder_name = "My Doc"
 
 
 def main():
-    client = RAGClient(base_url=base_url, api_key=api_key, timeout=120)
+    client = RAGClient(api_key=api_key, timeout=120)
 
     try:
         print("▶ 1) Attempting to create folder:", test_folder_name)
