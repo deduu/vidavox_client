@@ -7,7 +7,7 @@ from vidavox_rag_client.client import RAGClient
 from vidavox_rag_client.exceptions import NotFoundError, RAGAPIError
 
 
-api_key = "TE-kWiL2XUpCvtlgLXEl0TMcFA9Oe-9rqSakG_dEUr8"  # Your API key
+api_key = ".."  # Your API key
 
 # Make sure these files actually exist on disk before running.
 file1 = "./docs/PACKING LIST.pdf"
@@ -18,7 +18,8 @@ test_folder_name = "My Doc"
 
 
 def main():
-    client = RAGClient(api_key=api_key, timeout=120)
+    client = RAGClient(
+        api_key=api_key, timeout=120)
 
     try:
         print("▶ 1) Attempting to create folder:", test_folder_name)

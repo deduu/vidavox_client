@@ -10,37 +10,41 @@ api_key = ".."
 client = RAGClient(api_key=api_key)
 
 # Create a folder
-folder = client.create_folder("Test")
+folder = client.create_folder("My Docs")
 print(f"Created folder: {folder.id}")
 
-# #  Upload files
+#  Upload files
 uploaded_files = client.upload_files_to_folder(
-    folder_name="Test",
-    file_paths=["./file.pdf", "./docs/Journal.pdf"]
+    folder_name="My Docs",
+    file_paths=["./docs/Journal.pdf"]
 )
 print(f"Uploaded files: {uploaded_files}")
 
-# # # # List folders
+# # # # # List folders
 
 tree = client.get_folder_tree()
 # e.g. print(tree) → see: [{"id":"8572...", "name":"My Documents", "type":"folder", "children":[...]}, ...]
 print("Your folder tree:")
 print(json.dumps(tree, indent=2))
 
-file_ids_all = client.get_file_ids_in_folder_by_name(
-    "Test",
-    recursive=True
-)
-print(file_ids_all)
+# Create a folder
+folder = client.create_folder("My Docs")
+print(f"Created folder: {folder.id}")
 
-deleted = client.delete_files(
-    file_ids=file_ids_all,
-    raise_on_error=False
-)
+# file_ids_all = client.get_file_ids_in_folder_by_name(
+#     "Test",
+#     recursive=True
+# )
+# print(file_ids_all)
 
-tree = client.get_folder_tree()
-print("Your folder tree:")
-print(json.dumps(tree, indent=2))
+# deleted = client.delete_files(
+#     file_ids=file_ids_all,
+#     raise_on_error=False
+# )
+
+# tree = client.get_folder_tree()
+# print("Your folder tree:")
+# print(json.dumps(tree, indent=2))
 
 # Delete files
 # files = client.delete_files(
