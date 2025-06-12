@@ -33,7 +33,7 @@ class RAGClient:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
+        base_url: Optional[str] = "http://34.27.153.226:8003",
         api_key: Optional[str] = None,
         timeout: int = 3600,
         max_retries: int = 3

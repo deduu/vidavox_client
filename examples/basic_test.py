@@ -7,7 +7,7 @@ from vidavox_rag_client.client import RAGClient
 from vidavox_rag_client.exceptions import NotFoundError, RAGAPIError
 
 # ── EDIT THIS ──
-base_url = "http://localhost:8002"   # Your RAG API base URL
+base_url = "http://34.27.153.226:8003"   # Your RAG API base URL
 api_key = "TE-kWiL2XUpCvtlgLXEl0TMcFA9Oe-9rqSakG_dEUr8"  # Your API key
 
 # Make sure these files actually exist on disk before running.
@@ -15,7 +15,7 @@ file1 = "./docs/PACKING LIST.pdf"
 file2 = "./docs/Journal.pdf"
 
 # Name of the folder we'll create and later delete
-test_folder_name = "My Documents"
+test_folder_name = "My Doc"
 
 
 def main():
@@ -96,7 +96,7 @@ def main():
         try:
             results = client.rag_search_in_folder(
                 folder_name=test_folder_name,
-                query="What is the contribution of the research paper?",
+                query="What is the introduction of this paper?",
                 top_k=5,
                 threshold=0.4,
                 prompt_type="agentic"

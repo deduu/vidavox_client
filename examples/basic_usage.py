@@ -1,36 +1,46 @@
 import json
 from vidavox_rag_client.client import RAGClient
 from vidavox_rag_client.exceptions import NotFoundError
-base_url = "http://localhost:8003"
-api_key = "Z-OglNV8EinfVae9v66wxifSATdTr19-s2lLhafux9w"
+
+
+# Get the api key from your RAG API account
+api_key = ".."
+
 # Initialize the client
-client = RAGClient(base_url=base_url, api_key=api_key)
+client = RAGClient(api_key=api_key)
 
-# folder = client.delete_folder_by_name("My Documents")
-# print(f"Deleted folder: {folder.id}")
+# Create a folder
+folder = client.create_folder("Test")
+print(f"Created folder: {folder.id}")
 
-# # Create a folder
-# folder = client.create_folder("My Documents")
-# print(f"Created folder: {folder.id}")
-# folder = client.create_folder("My Documents")
-# print(f"Created folder: {folder.id}")
-# # # Upload files
+# #  Upload files
 uploaded_files = client.upload_files_to_folder(
-    folder_name="My Documents",
-    file_paths=["./docs/NPWP PERUSAHAAN.pdf"]
+    folder_name="Test",
+    file_paths=["./file.pdf", "./docs/Journal.pdf"]
 )
 print(f"Uploaded files: {uploaded_files}")
-# # # List folders
 
-# tree = client.get_folder_tree()
-# # e.g. print(tree) → see: [{"id":"8572...", "name":"My Documents", "type":"folder", "children":[...]}, ...]
-# print("Your folder tree:")
-# print(json.dumps(tree, indent=2))
+# # # # List folders
 
+tree = client.get_folder_tree()
+# e.g. print(tree) → see: [{"id":"8572...", "name":"My Documents", "type":"folder", "children":[...]}, ...]
+print("Your folder tree:")
+print(json.dumps(tree, indent=2))
 
-# tree = client.get_folder_tree()
-# print("Your folder tree:")
-# print(json.dumps(tree, indent=2))
+file_ids_all = client.get_file_ids_in_folder_by_name(
+    "Test",
+    recursive=True
+)
+print(file_ids_all)
+
+deleted = client.delete_files(
+    file_ids=file_ids_all,
+    raise_on_error=False
+)
+
+tree = client.get_folder_tree()
+print("Your folder tree:")
+print(json.dumps(tree, indent=2))
 
 # Delete files
 # files = client.delete_files(
@@ -39,8 +49,6 @@ print(f"Uploaded files: {uploaded_files}")
 # )
 # print(f"Files: {files}")
 
-
-# print(f"Uploaded files: {uploaded_files}")
 
 # # Search documents
 # results = client.rag_search_in_folder(
