@@ -330,7 +330,6 @@ class RAGClient:
 
     def search(
         self,
-        folder_id: str,
         query: str,
         top_k: int = 10,
         threshold: float = 0.4,
@@ -540,9 +539,9 @@ class RAGClient:
 
         return self.upload_files(folder_id, file_paths)
 
-    def rag_search_in_folder(
+    def rag_search_in_folders(
         self,
-        folder_name: str,
+        folder_names: List[str],
         query: str,
         top_k: int = 10,
         threshold: float = 0.4,
@@ -552,21 +551,25 @@ class RAGClient:
         exclude_doc_ids: Optional[List[str]] = None,
     ) -> SearchResponse:
         """
-        Convenience wrapper: find a folder by name, then run search(...) there.
-        Raises NotFoundError if folder not found.
+        Extended wrapper: accept multiple folder names and run search on all their files.
+
+        Raises NotFoundError if any folder is not found.
         """
-        folder_id = self.find_folder_id(folder_name)
+        all_file_ids = []
 
-        file_ids = self.get_file_ids_in_folder(folder_id, recursive=True)
-        if not folder_id:
-            raise NotFoundError(
-                f"Folder named '{folder_name}' not found in your tree.")
+        for folder_name in folder_names:
+            folder_id = self.find_folder_id(folder_name)
+            if not folder_id:
+                raise NotFoundError(
+                    f"Folder named '{folder_name}' not found in your tree.")
 
-        # Merge user prefixes with file_ids and deduplicate
-        combined_prefixes = list(set(file_ids + (prefixes or [])))
+            file_ids = self.get_file_ids_in_folder(folder_id, recursive=True)
+            all_file_ids.extend(file_ids)
+
+        # Merge with user-supplied prefixes, then deduplicate
+        combined_prefixes = list(set(all_file_ids + (prefixes or [])))
 
         return self.search(
-            folder_id=folder_id,
             query=query,
             top_k=top_k,
             threshold=threshold,

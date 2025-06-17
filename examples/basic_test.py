@@ -14,7 +14,7 @@ file1 = "./docs/PACKING LIST.pdf"
 file2 = "./docs/Journal.pdf"
 
 # Name of the folder we'll create and later delete
-test_folder_name = "My Doc"
+test_folder_name = "My Downloads"
 
 
 def main():
