@@ -75,6 +75,20 @@ class RAGClient:
             'User-Agent': f'RAG-Client/{self._get_version()}'
         })
 
+    @staticmethod
+    def _is_folder(node: dict) -> bool:
+        """
+        Return True only for “folder” nodes.
+
+        Fallback logic:
+        1. Prefer an explicit node["type"] == "folder"
+        2. Otherwise treat any node that *has* children as a folder.
+        """
+        if "type" in node:
+            return node["type"] == "folder"
+        # graceful fallback when backend omits `type`
+        return bool(node.get("children"))
+
     def _get_version(self) -> str:
         """Get client version."""
         try:
@@ -216,6 +230,28 @@ class RAGClient:
             raise NotFoundError(f"Folder named '{folder_name}' not found.")
 
         return self.delete_folder(folder_id)
+
+    def delete_folders_by_names(self, folder_names: List[str]) -> Dict[str, bool]:
+        """
+        Delete multiple folders by their names.
+        Returns a dict name→success. Stops on first error by default.
+        """
+        results: Dict[str, bool] = {}
+        first_error = None
+
+        for name in folder_names:
+            try:
+                self.delete_folder_by_name(name)
+                results[name] = True
+            except Exception as e:
+                results[name] = False
+                if first_error is None:
+                    first_error = e
+
+        if first_error:
+            raise first_error
+        return results
+
     # File Operations
 
     def upload_files(
@@ -324,6 +360,62 @@ class RAGClient:
         if raise_on_error and first_error:
             raise first_error
 
+        return results
+
+    def delete_file_by_name(
+        self,
+        folder_name: str,
+        file_name: str,
+        allow_multiple: bool = False
+    ) -> None:
+        """
+        Delete file(s) by name within a given folder.
+        If allow_multiple=False (default), deletes the first match only.
+        If allow_multiple=True, deletes every file matching that name.
+        """
+        # 1) resolve folder → ID
+        folder_id = self.find_folder_id(folder_name)
+        if not folder_id:
+            raise NotFoundError(f"Folder '{folder_name}' not found.")
+        # 2) list files
+        files = self.list_files(folder_id)
+        # 3) filter by name
+        matches = [f for f in files if f.name == file_name]
+        if not matches:
+            raise NotFoundError(
+                f"No file called '{file_name}' in '{folder_name}'.")
+        # 4) delete
+        if allow_multiple:
+            for f in matches:
+                self.delete_file(f.id)
+        else:
+            self.delete_file(matches[0].id)
+
+    def delete_files_by_names(
+        self,
+        folder_name: str,
+        file_names: List[str],
+        allow_multiple_per_name: bool = False
+    ) -> Dict[str, bool]:
+        """
+        Delete a list of file-names in one folder.
+        Returns name→success. Stops on first error by default.
+        """
+        results: Dict[str, bool] = {}
+        first_error = None
+
+        for name in file_names:
+            try:
+                self.delete_file_by_name(
+                    folder_name, name, allow_multiple=allow_multiple_per_name)
+                results[name] = True
+            except Exception as e:
+                results[name] = False
+                if first_error is None:
+                    first_error = e
+
+        if first_error:
+            raise first_error
         return results
 
     # Search Operations
@@ -581,6 +673,57 @@ class RAGClient:
 
     # Key methods to add for better developer experience
 
+    # ------------------------------------------------------------------ #
+    # 1) Nested names (folders only)
+    # ------------------------------------------------------------------ #
+    def list_folder_names(self) -> list[dict]:
+        """
+        Return a nested tree of *folder* names only:
+        [{'name':'A', 'children':[ ... ]}, …]
+        """
+        raw_tree = self.get_folder_tree()
+
+        def simplify(node: dict) -> dict | None:
+            if not self._is_folder(node):
+                return None                       # skip file nodes
+            return {
+                "name": node["name"],
+                "children": [
+                    simplified                       # keep only folders
+                    for child in node.get("children", [])
+                    if (simplified := simplify(child)) is not None
+                ],
+            }
+
+        return [
+            simplified
+            for n in raw_tree
+            if (simplified := simplify(n)) is not None
+        ]
+
+    # ------------------------------------------------------------------ #
+    # 2) Flat paths (folders only)
+    # ------------------------------------------------------------------ #
+    def list_folder_paths(self) -> list[str]:
+        """
+        Return a flat list of folder paths, e.g.
+        ["Invoices", "Invoices/2024", "Invoices/2025", "Receipts"]
+        """
+        raw_tree = self.get_folder_tree()
+        paths: list[str] = []
+
+        def walk(node: dict, prefix: str = "") -> None:
+            if not self._is_folder(node):
+                return                              # skip files
+            current = f"{prefix}{node['name']}"
+            paths.append(current)
+            for child in node.get("children", []):
+                walk(child, prefix=current + "/")
+
+        for top in raw_tree:
+            walk(top)
+        return paths
+
     def list_folders(self, parent_id: Optional[str] = None) -> List[Folder]:
         """List all folders, optionally filtered by parent."""
         endpoint = "/v1/folders/"
@@ -590,20 +733,100 @@ class RAGClient:
         response = self._make_request('GET', endpoint)
         return [Folder.from_dict(folder) for folder in response.json()]
 
+    # def get_folder(self, folder_id: str) -> Folder:
+    #     """Get detailed information about a specific folder."""
+    #     response = self._make_request('GET', f'/v1/folders/{folder_id}')
+    #     return Folder.from_dict(response.json())
+
+    # def list_files(self, folder_id: str) -> List[File]:
+    #     """List all files in a folder."""
+    #     response = self._make_request('GET', f'/v1/folders/{folder_id}/files')
+    #     return [File.from_dict(file_data) for file_data in response.json()]
+
+    # def get_file(self, file_id: str) -> File:
+    #     """Get detailed information about a specific file."""
+    #     response = self._make_request('GET', f'/v1/files/{file_id}')
+    #     return File.from_dict(response.json())
     def get_folder(self, folder_id: str) -> Folder:
-        """Get detailed information about a specific folder."""
-        response = self._make_request('GET', f'/v1/folders/{folder_id}')
-        return Folder.from_dict(response.json())
+        """
+        Fetch the full tree, find the folder node, and inject
+        exactly the fields Folder.from_dict needs.
+        """
+        node = self.find_folder_node_by_id(folder_id)
+        if not node:
+            raise NotFoundError(f"Folder with id '{folder_id}' not found.")
+        return Folder.from_dict({
+            "id":        node["id"],
+            "name":      node["name"],
+            "parent_id": node.get("parent_id"),
+            # if your Folder model wants other fields, pull them out here
+        })
 
     def list_files(self, folder_id: str) -> List[File]:
-        """List all files in a folder."""
-        response = self._make_request('GET', f'/v1/folders/{folder_id}/files')
-        return [File.from_dict(file_data) for file_data in response.json()]
+        """
+        Look up the folder node in the tree, then treat each
+        non-folder child as a File – injecting `folder_id` so
+        File.from_dict() no longer blows up.
+        """
+        node = self.find_folder_node_by_id(folder_id)
+        if not node:
+            raise NotFoundError(f"Folder with id '{folder_id}' not found.")
+
+        files = []
+        for child in node.get("children", []):
+            if not self._is_folder(child):
+                files.append(File.from_dict({
+                    "id":           child["id"],
+                    "name":         child["name"],
+                    "folder_id":    folder_id,
+                    "size":         child.get("size", 0),
+                    "content_type": child.get("content_type", "application/octet-stream"),
+                    "created_at":   child.get("created_at"),
+                    "updated_at":   child.get("updated_at"),
+                    "status":       child.get("status", "processed"),
+                    "error_message": child.get("error_message"),
+                }))
+        return files
 
     def get_file(self, file_id: str) -> File:
-        """Get detailed information about a specific file."""
-        response = self._make_request('GET', f'/v1/files/{file_id}')
-        return File.from_dict(response.json())
+        """
+        Recursively walk the entire tree, track each node’s
+        parent folder_id, and when we hit the file_id, build
+        exactly the dict File.from_dict() needs.
+        """
+        def _search(nodes: List[Dict[str, Any]], parent_id: Optional[str]) -> Optional[tuple]:
+            for n in nodes:
+                # if it's the file we want
+                if n["id"] == file_id and not self._is_folder(n):
+                    return n, parent_id
+                # if it’s a folder, recurse with its id as the new parent
+                if self._is_folder(n) and "children" in n:
+                    found = _search(n["children"], n["id"])
+                    if found:
+                        return found
+            return None
+
+        tree = self.get_folder_tree()
+        result = _search(tree, None)
+        if not result:
+            raise NotFoundError(f"File with id '{file_id}' not found.")
+
+        node, folder_id = result
+        if folder_id is None:
+            # shouldn't really happen unless your API returns a root-level file
+            raise ValidationError(f"Cannot infer folder for file {file_id!r}")
+
+        return File.from_dict({
+            "id":           node["id"],
+            "name":         node["name"],
+            "folder_id":    folder_id,
+            "size":         node.get("size", 0),
+            "content_type": node.get("content_type", "application/octet-stream"),
+            "created_at":   node.get("created_at"),
+            "updated_at":   node.get("updated_at"),
+            "status":       node.get("status", "processed"),
+            "error_message": node.get("error_message"),
+        })
 
     def __enter__(self):
         """Context manager entry."""
